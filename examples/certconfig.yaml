@@ -1,0 +1,181 @@
+# This is an example certificate configuration for aws-lambda-letsencrypt. The
+# configuration includes details (aka certificate spec) that will go into the
+# certificate request: DNS names, validity and private key size. It also
+# specifies renewal, which validators to use, and where to export the finished
+# certificate.
+#
+# Make a copy of this example and then upload the file to the certificate
+# store, that is the S3 bucket (and optional prefix) specified in the
+# environment variables: CERTSTORE_S3_REGION, CERTSTORE_S3_BUCKET, and
+# CERTSTORE_S3_PREFIX.
+#
+# The file must be named "certconfig.yaml" to be picked up.
+
+
+# Certificate spec for the signing request.
+certificate_spec:
+
+  # List of DNS names to include in the certificate request. All of these end
+  # up in the SAN list. The first one also goes in the certificate's CN field.
+  #
+  # NOTE: The DNS names must be in the same hosted zone for the AWS Route 53
+  # validator to work. Use a separate certconfig.yaml for other hosted zones.
+  #
+  # NOTE: Wildcard certificates are not yet supported. This depends on ACME v2
+  # (RFC 8555) support in the x/crypto/acme package; see
+  # https://github.com/golang/go/issues/21081
+  #
+  # Required: yes
+  # Default: empty list
+  dns_names: [
+    my-test-1.example.com,
+    my-test-2.example.com,
+    my-test-3.example.com,
+  ]
+
+  # Certificate (and private key) RSA key size.
+  #
+  # NOTE: Only RSA keys are supported at the moment.
+  #
+  # Required: no
+  # Default: 2048
+  key_bits: 2048
+
+  # Certificate validity.
+  #
+  # Required: no
+  # Default: 7776000 (90 days)
+  validity_duration_seconds: 7776000 # 90 days
+
+  # The certificate chain is verified by default, but should be skipped if the
+  # Let's Encrypt staging server is used. Otherwise the verification will fail
+  # before the certificate is exported.
+  #
+  # Use of the Let's Encrypt staging or production server is controlled by the
+  # aws-lambda-letsencrypt ACME_BASE_URL environment variable.
+  #
+  # Required: no
+  # Default: false
+  skip_verify_chain: false
+
+
+# Renewal configuration.
+renewal:
+
+  # Renew the certificate N seconds before its validity end time. Note that the
+  # actual renewal is delayed until the Lambda is triggered (by something like
+  # a CloudWatch Scheduled Event).
+  #
+  # NOTE: Be careful with setting this too low, since it plays together with
+  # the Lambda invocation frequency. Using a value of 0 effectively disables
+  # the expiry check and also the renewal, which is most likely not desirable.
+  #
+  # Required: no
+  # Default: 864000 (10 days)
+  before_validity_end_seconds: 864000 # 10 days
+
+
+# Validators handle the Let's Encrypt authorization challenges.
+validators:
+
+- # AWS Route 53 validator for the dns-01 challenge.
+  type: aws-route53
+  challenge_type: dns-01
+
+  # This configuration block is passed to the aws-route53 validator.
+  config:
+
+    # The IAM role ARN to assume for Route 53 operations.
+    #
+    # NOTE: Wrap the value in quotes to avoid YAML parsing problems.
+    #
+    # Required: no
+    # Default: use the existing Lambda IAM role
+    role_arn: "arn:aws:iam::123456789012:role/role-with-route53-access"
+
+    # The Route 53 hosted zone ID to create the validation records in.
+    #
+    # Required: yes
+    # Default: none
+    zone_id: Z1234567890ABC
+
+
+# Exporters handle the finished certificate, private key and CA bundle.
+exporters:
+
+- # AWS S3 exporter for storing the following files with the specified prefix:
+  #   <prefix>privatekey.pem
+  #   <prefix>certificate.pem
+  #   <prefix>cabundle.pem
+  type: aws-s3
+
+  # This configuration block is passed to the aws-s3 exporter.
+  config:
+    # S3 bucket.
+    #
+    # Required: yes
+    # Default: none
+    bucket: my-letsencrypt-bucket
+
+    # S3 prefix.
+    #
+    # NOTE: The trailing slash is recommended when using a prefix. If omitted,
+    # the S3 objects will end up being named "myprefixcertificate.pem" instead
+    # of "myprefix/certificate.pem". Leave this empty or undefined to put the
+    # objects at the top level of the bucket.
+    #
+    # Required: no
+    # Default: empty (objects are put in the top level of the bucket)
+    prefix: testcert/
+
+    # S3 bucket region.
+    #
+    # Required: yes
+    # Default: none
+    region: us-east-1
+
+    # Server-side encryption KMS key ID (optional).
+    #
+    # Required: no
+    # Default: none
+    sse_kms_key_id: ""
+
+- # AWS SNS exporter for sending a text notification when a certificate is
+  # created/renewed. The notification does not include the actual certificate,
+  # private key, nor CA bundle.
+  type: aws-sns
+
+  # This configuration block is passed to the aws-sns exporter.
+  config:
+    # SNS topic region.
+    region: us-east-1
+
+    # SNS topic ARN.
+    #
+    # NOTE: Wrap the value in quotes to avoid YAML parsing problems.
+    topic_arn: "arn:aws:sns:us-east-1:123456789012:letsencrypt"
+
+- # AWS ACM exporter for importing the private key and certificate into ACM.
+  #
+  # NOTE: Specify the ARN of an existing certificate that will be overwritten
+  # on each renewal. In other words, make a temporary certificate first to
+  # obtain the ARN.
+  type: aws-acm
+
+  # This configuration block is passed to the aws-acm exporter.
+  config:
+    # ACM region.
+    #
+    # Required: yes, if certificate_arn is not specified
+    # Default: region from certificate_arn if specified; otherwise none
+    region: us-east-1
+
+    # ARN of existing certificate to replace on certificate creation/renewal.
+    #
+    # NOTE: If there's no existing ACM certificate that can be replaced, you
+    # can simply make a new one: Either 1) use ACM itself, or 2) omit the
+    # certificate_arn value below. For the second approach, get the ACM cert
+    # ARN after the first run and put it here.
+    #
+    # NOTE: Wrap the value in quotes to avoid YAML parsing problems.
+    certificate_arn: "arn:aws:acm:us-east-1:123456789012:certificate/12345678-1234-1234-1234-123456789012"
